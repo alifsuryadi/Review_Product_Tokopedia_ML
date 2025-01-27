@@ -1,4 +1,4 @@
-[![Build and Push to Artifact Registry](https://github.com/Ulas-Scan/Review_Product_Tokopedia_ML/actions/workflows/deploy.yml/badge.svg)](https://github.com/Ulas-Scan/Review_Product_Tokopedia_ML/actions/workflows/deploy.yml)
+[![Build and Push to Artifact Registry](https://github.com/alifsuryadi/Review_Product_Tokopedia_ML/actions/workflows/deploy.yml/badge.svg)](https://github.com/alifsuryadi/Review_Product_Tokopedia_ML/actions/workflows/deploy.yml)
 
 # Flask Capstone Machine Learning Project
 
@@ -16,7 +16,7 @@ Before running this project, ensure you have the following installed:
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/Ulas-Scan/Review_Product_Tokopedia_ML.git
+   git clone https://github.com/alifsuryadi/Review_Product_Tokopedia_ML.git
 
    ```
 
