@@ -1,6 +1,6 @@
-content,label
-Sangat puas dengan pembelian ini.,1
-"Pengalaman buruk, barang tidak sesuai deskripsi.",0
-Barang berkualitas dan harga terjangkau.,1
-"Paket rusak saat diterima, sangat kecewa.",0
-Pengiriman cepat dan barang bagus.,1
+review,rating
+Sangat puas dengan pembelian ini.,5
+"Pengalaman buruk, barang tidak sesuai deskripsi.",2
+Barang berkualitas dan harga terjangkau.,4
+"Paket rusak saat diterima, sangat kecewa.",2
+Pengiriman cepat dan barang bagus.,5

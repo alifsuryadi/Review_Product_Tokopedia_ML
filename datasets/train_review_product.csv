@@ -1,11 +1,11 @@
-content,label
-Produk ini sangat bagus dan memuaskan!,1
-"Tidak sesuai dengan harapan, kualitas buruk.",0
-Paket datang cepat dan barang sesuai deskripsi.,1
-"Sangat kecewa, produk tidak berfungsi sama sekali.",0
-"Harga terjangkau, kualitas oke.",1
-"Barang cacat, sangat mengecewakan.",0
-"Produk berkualitas tinggi, sangat direkomendasikan.",1
-"Layanan pengiriman sangat lambat, tidak puas.",0
-"Barang sesuai dengan foto, sangat puas.",1
-"Produk murah tapi kualitas buruk, tidak direkomendasikan.",0
+review,rating
+Produk ini sangat bagus dan memuaskan!,4
+"Tidak sesuai dengan harapan, kualitas buruk.",2
+Paket datang cepat dan barang sesuai deskripsi.,5
+"Sangat kecewa, produk tidak berfungsi sama sekali.",1
+"Harga terjangkau, kualitas oke.",5
+"Barang cacat, sangat mengecewakan.",2
+"Produk berkualitas tinggi, sangat direkomendasikan.",4
+"Layanan pengiriman sangat lambat, tidak puas.",2
+"Barang sesuai dengan foto, sangat puas.",4
+"Produk murah tapi kualitas buruk, tidak direkomendasikan.",1
