@@ -14,6 +14,13 @@ import tensorflow as tf
 from transformers import BertTokenizer, TFBertForSequenceClassification
 import os
 from dotenv import load_dotenv
+
+import sys
+import os
+
+# Tambahkan path direktori tempat 'utils' berada
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from utils import get_model
 
 
@@ -93,14 +100,14 @@ def preprocess_data(df, normalization_map):
     # Langkah preprocessing per teks
     def preprocess_text_steps(text):
         steps = {}
-        # Step 1: Cleaning
-        cleaned_text = text.replace("...", "").replace("!", "").replace(".", "")
-        steps["cleaned"] = cleaned_text
-        # Step 2: Case Folding
-        case_folded_text = cleaned_text.lower()
+        # Step 1: Case Folding
+        case_folded_text = text.lower()
         steps["case_folded"] = case_folded_text
+        # Step 2: Cleaning
+        cleaned_text = case_folded_text.replace("...", "").replace("!", "").replace(".", "")
+        steps["cleaned"] = cleaned_text
         # Step 3: Normalization
-        normalized_text = " ".join([normalization_map.get(word, word) for word in case_folded_text.split()])
+        normalized_text = " ".join([normalization_map.get(word, word) for word in cleaned_text.split()])
         steps["normalized"] = normalized_text
         # Step 4: Filtering (Stopword Removal)
         filtered_text = stopword_remover.remove(normalized_text)
@@ -114,8 +121,8 @@ def preprocess_data(df, normalization_map):
     preprocessing_steps = df["review"].apply(preprocess_text_steps)
 
     # Tambahkan setiap langkah ke dalam DataFrame
-    df["cleaned"] = preprocessing_steps.apply(lambda x: x["cleaned"])
     df["case_folded"] = preprocessing_steps.apply(lambda x: x["case_folded"])
+    df["cleaned"] = preprocessing_steps.apply(lambda x: x["cleaned"])
     df["normalized"] = preprocessing_steps.apply(lambda x: x["normalized"])
     df["filtered"] = preprocessing_steps.apply(lambda x: x["filtered"])
     df["lemmatized"] = preprocessing_steps.apply(lambda x: x["lemmatized"])
@@ -306,6 +313,7 @@ def analysis_page():
         st.write("### Last Trained Model Metrics")
         for key, value in st.session_state['metrics'].items():
             st.write(f"**{key}:** {value:.2f}")
+        
 
     if "model" in st.session_state:
         st.write("### Test Model")
@@ -387,7 +395,7 @@ def preprocessing_page():
 
         df = preprocess_data(df, normalization_map)
         st.write("**1. Preprocessing Steps:**")
-        st.write(df[["cleaned", "case_folded", "normalized", "filtered", "lemmatized", "preprocessed_review"]].head())
+        st.write(df[["case_folded", "cleaned", "normalized", "filtered", "lemmatized", "preprocessed_review"]].head())
         st.write(df.head())
 
         df = label_data_with_vader(df)
