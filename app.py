@@ -18,7 +18,7 @@ tokenizer = get_tokenizer(MODEL_NAME)
 model = get_model(PRETRAINED_PATH)
 
 # Get API key from environment variable
-API_KEY = os.getenv('API_KEY')
+API_KEY = os.getenv('HUGGING_FACE_TOKEN')
 
 def process_statements(statements):
         try:

@@ -6,7 +6,7 @@ from streamlit_option_menu import option_menu
 from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFactory
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, accuracy_score, precision_score, recall_score, f1_score
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from deep_translator import GoogleTranslator
 import nltk
@@ -14,6 +14,7 @@ import tensorflow as tf
 from transformers import BertTokenizer, TFBertForSequenceClassification
 import os
 from dotenv import load_dotenv
+from utils import get_model
 
 
 load_dotenv()
@@ -89,21 +90,39 @@ def preprocess_data(df, normalization_map):
     stopword_remover = StopWordRemoverFactory().create_stop_word_remover()
     stemmer = StemmerFactory().create_stemmer()
 
-    def preprocess_text(text):
+    # Langkah preprocessing per teks
+    def preprocess_text_steps(text):
+        steps = {}
         # Step 1: Cleaning
-        text = text.replace("...", "").replace("!", "").replace(".", "")
+        cleaned_text = text.replace("...", "").replace("!", "").replace(".", "")
+        steps["cleaned"] = cleaned_text
         # Step 2: Case Folding
-        text = text.lower()
+        case_folded_text = cleaned_text.lower()
+        steps["case_folded"] = case_folded_text
         # Step 3: Normalization
-        text = " ".join([normalization_map.get(word, word) for word in text.split()])
-        # Step 4: Filtering (using Sastrawi Stopword Remover)
-        text = stopword_remover.remove(text)
-        # Step 5: Lemmatization (using Sastrawi Stemmer)
-        text = stemmer.stem(text)
-        return text
+        normalized_text = " ".join([normalization_map.get(word, word) for word in case_folded_text.split()])
+        steps["normalized"] = normalized_text
+        # Step 4: Filtering (Stopword Removal)
+        filtered_text = stopword_remover.remove(normalized_text)
+        steps["filtered"] = filtered_text
+        # Step 5: Lemmatization
+        lemmatized_text = stemmer.stem(filtered_text)
+        steps["lemmatized"] = lemmatized_text
+        return steps
 
-    df["preprocessed_review"] = df["review"].apply(preprocess_text)
-    # df["review"] = df["review"].apply(preprocess_text)
+    # Terapkan preprocessing dan simpan langkah-langkah
+    preprocessing_steps = df["review"].apply(preprocess_text_steps)
+
+    # Tambahkan setiap langkah ke dalam DataFrame
+    df["cleaned"] = preprocessing_steps.apply(lambda x: x["cleaned"])
+    df["case_folded"] = preprocessing_steps.apply(lambda x: x["case_folded"])
+    df["normalized"] = preprocessing_steps.apply(lambda x: x["normalized"])
+    df["filtered"] = preprocessing_steps.apply(lambda x: x["filtered"])
+    df["lemmatized"] = preprocessing_steps.apply(lambda x: x["lemmatized"])
+
+    # Tambahkan kolom final "preprocessed_review"
+    df["preprocessed_review"] = df["lemmatized"]
+
     return df
 
 def label_data_with_vader(df):
@@ -195,18 +214,16 @@ def train_and_evaluate_model(df):
     predictions = model.predict([test_input_ids, test_attention_mask])
     predicted_labels = tf.argmax(predictions.logits, axis=1)
 
-    accuracy = accuracy_score(y_test, predicted_labels)
-    precision = precision_score(y_test, predicted_labels, average='weighted')
-    recall = recall_score(y_test, predicted_labels, average='weighted')
-    f1 = f1_score(y_test, predicted_labels, average='weighted')
-
     metrics = {
-        "Accuracy": accuracy,
-        "Precision": precision,
-        "Recall": recall,
-        "F1-Score": f1
+        "Accuracy": accuracy_score(y_test, predicted_labels),
+        "Precision": precision_score(y_test, predicted_labels, average='weighted'),
+        "Recall": recall_score(y_test, predicted_labels, average='weighted'),
+        "F1-Score": f1_score(y_test, predicted_labels, average='weighted')
     }
-    return model, metrics
+
+    # Confusion Matrix
+    cm = confusion_matrix(y_test, predicted_labels)
+    return model, metrics, cm
 
 
 def dataset_page():
@@ -223,6 +240,8 @@ def dataset_page():
         else:
             st.session_state["processed_data"] = df
             st.success("Dataset loaded successfully! You can now proceed to the Preprocessing page.")
+            # if st.button("Go to Preprocessing"):
+            #     st.session_state['page'] = "Preprocessing"
 
 def predict_with_trained_model(model, tokenizer, text):
     """
@@ -259,34 +278,57 @@ def analysis_page():
         st.warning("No preprocessed data found. Please complete preprocessing first.")
         return
 
-    df = st.session_state["preprocessed_data"]
-
-    st.write("**Dataset Preview (Top 5):**")
+    df = st.session_state["preprocessed_data"].copy()
+    
+    st.write("**Preprocessed Dataset Preview:**")
     st.write(df.head())
 
-    if st.button("Train and Evaluate Model", key="train_model"):
-        model, metrics = train_and_evaluate_model(df)
 
-        st.write("**Evaluation Metrics:**")
-        st.write(f"Accuracy: {metrics['Accuracy']:.2f}")
-        st.write(f"Precision: {metrics['Precision']:.2f}")
-        st.write(f"Recall: {metrics['Recall']:.2f}")
-        st.write(f"F1-Score: {metrics['F1-Score']:.2f}")
+    if st.button("Train and Evaluate Model"):
+        model, metrics, cm = train_and_evaluate_model(df)
+
+        st.write("### Evaluation Metrics")
+        for key, value in metrics.items():
+            st.write(f"**{key}:** {value:.2f}")
+
+        # Display Confusion Matrix
+        st.write("### Confusion Matrix")
+        fig, ax = plt.subplots()
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Negative", "Positive"])
+        disp.plot(ax=ax)
+        st.pyplot(fig)
 
         st.session_state['model'] = model
-        st.success("Model trained successfully!")
+        st.session_state['metrics'] = metrics
+        st.session_state['confusion_matrix'] = cm
+
+    if "metrics" in st.session_state:
+        st.write("### Last Trained Model Metrics")
+        for key, value in st.session_state['metrics'].items():
+            st.write(f"**{key}:** {value:.2f}")
 
     if "model" in st.session_state:
-        st.header("Test Model")
-        test_input = st.text_area("Enter text for sentiment prediction:", key="test_input")
+        st.write("### Test Model")
+        test_input = st.text_area("Enter text for sentiment prediction:")
 
-        if st.button("Predict", key="predict_button"):
-            model = st.session_state["model"]
-            tokenizer = BertTokenizer.from_pretrained("cahya/bert-base-indonesian-522M")
+        if st.button("Predict"):
+            
+            # JANGAN DI UBAH
+            # model = st.session_state['model']
+            model = get_model('transformers-bert')
+            tokenizer = BertTokenizer.from_pretrained('cahya/bert-base-indonesian-522M')
 
-            # Gunakan fungsi prediksi yang hanya menggunakan model yang dilatih
-            sentiment = predict_with_trained_model(model, tokenizer, test_input)
+            tokenized_input = tokenizer(
+                text=[test_input],
+                add_special_tokens=True,
+                max_length=100,
+                truncation=True,
+                padding='max_length',
+                return_tensors='tf'
+            )
 
+            prediction = model.predict([tokenized_input['input_ids'], tokenized_input['attention_mask']])
+            sentiment = "Positive" if tf.argmax(prediction.logits, axis=1).numpy()[0] == 1 else "Negative"
             st.write(f"**Predicted Sentiment:** {sentiment}")
 
 
@@ -300,7 +342,7 @@ def login_page():
         if response.get("status"):
             st.session_state['authenticated'] = True
             st.session_state['token'] = response["data"]["token"]
-            st.session_state['page'] = "dashboard"
+            st.session_state['page'] = "Home"
         else:
             st.error(response.get("message", "Login failed"))
 
@@ -332,6 +374,9 @@ def preprocessing_page():
         return
 
     df = st.session_state["processed_data"]
+    
+    st.write("**Dataset Preview:**")
+    st.write(df.head())
 
     if st.button("Start Preprocessing", key="start_preprocessing"):
         normalization_map = load_normalization_map("./kamus/kamus_singkatan.csv")
@@ -342,7 +387,7 @@ def preprocessing_page():
 
         df = preprocess_data(df, normalization_map)
         st.write("**1. Preprocessing Steps:**")
-        st.write("**1. Cleaning, Case Folding, Normalization, Filtering, Lemmatization:**")
+        st.write(df[["cleaned", "case_folded", "normalized", "filtered", "lemmatized", "preprocessed_review"]].head())
         st.write(df.head())
 
         df = label_data_with_vader(df)
@@ -351,17 +396,26 @@ def preprocessing_page():
 
         st.session_state["preprocessed_data"] = df
         st.success("Preprocessing complete! You can now proceed to the Analysis page.")
+        # if st.button("Go to Analysis"):
+        #     st.session_state['page'] = "Analysis"
 
 
 def dashboard():
+    # Navigasi antar halaman menggunakan session_state
+    current_page = st.session_state.get("page", "Home")
+
     with st.sidebar:
         selected = option_menu(
             menu_title="Navigation",
             options=["Home", "Dataset", "Preprocessing", "Analysis", "Search Product", "Logout"],
             icons=["house", "table", "gear", "graph-up", "search", "box-arrow-right"],
             menu_icon="cast",
+            # default_index=["Home", "Dataset", "Preprocessing", "Analysis", "Search Product", "Logout"].index(current_page)
             default_index=0
         )
+
+    # Perbarui halaman saat ini di session_state
+    # st.session_state["page"] = selected
 
     if selected == "Home":
         st.title("Home")
@@ -415,9 +469,9 @@ def dashboard():
     elif selected == "Logout":
         st.session_state["authenticated"] = False
         st.session_state["page"] = "login"
-        # Gunakan logika berikut untuk mereset halaman secara manual
         st.write("Logging out...")
-        st.stop()  # Menghentikan eksekusi saat ini
+        st.stop()
+
 
 
 if __name__ == "__main__":
