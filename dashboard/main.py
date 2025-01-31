@@ -14,6 +14,9 @@ import tensorflow as tf
 from transformers import BertTokenizer, TFBertForSequenceClassification
 import os
 from dotenv import load_dotenv
+import re
+import chardet
+from deep_translator.exceptions import RequestError
 
 import sys
 import os
@@ -35,7 +38,7 @@ BASE_ML_URL = "http://127.0.0.1:5000"
 nltk.download('vader_lexicon')
 
 def splash_screen():
-    st.title("Welcome to the Sentiment Analysis App")
+    st.title("Welcome to the Sentiment Result App")
     st.write("Analyze and preprocess Tokopedia product reviews effortlessly.")
 
     col1, col2 = st.columns(2)
@@ -82,7 +85,7 @@ def api_predict(statements):
     response = requests.post(url, json=payload, headers=headers)
     return response.json()
 
-def api_product_analysis(product_url):
+def api_product_result(product_url):
     url = f"{BASE_URL}/api/ml/guest/analysis"
     params = {"product_url": product_url}
     response = requests.get(url, params=params)
@@ -92,10 +95,21 @@ def load_normalization_map(file_path):
     df = pd.read_csv(file_path, sep=";", header=None, names=["abbreviation", "normal"])
     return {row["abbreviation"]: row["normal"] for _, row in df.iterrows()}
 
+
 def preprocess_data(df, normalization_map):
     # Initialize Sastrawi stopword remover and stemmer
     stopword_remover = StopWordRemoverFactory().create_stop_word_remover()
     stemmer = StemmerFactory().create_stemmer()
+    
+    def clean_text(text):
+        """ Membersihkan teks dari emoji, hashtag, username, URL, dan spasi berlebih """
+        text = re.sub(r'http\S+|www\S+', '', text)  # Hapus URL
+        text = re.sub(r'@\w+', '', text)  # Hapus username (@username)
+        text = re.sub(r'#\w+', '', text)  # Hapus hashtag (#hashtag)
+        text = re.sub(r'[^\w\s,]', '', text)  # Hapus karakter selain huruf, angka, spasi, dan koma
+        text = re.sub(r'\s+', ' ', text).strip()  # Hapus spasi ganda dan spasi di awal/akhir
+        
+        return text
 
     # Langkah preprocessing per teks
     def preprocess_text_steps(text):
@@ -104,7 +118,7 @@ def preprocess_data(df, normalization_map):
         case_folded_text = text.lower()
         steps["case_folded"] = case_folded_text
         # Step 2: Cleaning
-        cleaned_text = case_folded_text.replace("...", "").replace("!", "").replace(".", "")
+        cleaned_text = clean_text(case_folded_text)
         steps["cleaned"] = cleaned_text
         # Step 3: Normalization
         normalized_text = " ".join([normalization_map.get(word, word) for word in cleaned_text.split()])
@@ -134,9 +148,20 @@ def preprocess_data(df, normalization_map):
 
 def label_data_with_vader(df):
     sid = SentimentIntensityAnalyzer()
+    translation_cache = {}  # Cache untuk teks yang sudah diterjemahkan
 
     def label_sentiment(text):
-        english_text = GoogleTranslator(source='auto', target='en').translate(text)
+        # Gunakan cache jika teks sudah pernah diterjemahkan
+        if text in translation_cache:
+            english_text = translation_cache[text]
+        else:
+            try:
+                english_text = GoogleTranslator(source='auto', target='en').translate(text)
+                translation_cache[text] = english_text  # Simpan hasil terjemahan ke cache
+            except RequestError:
+                st.warning("Google Translator API error! Using original text.")
+                english_text = text  # Jika gagal, gunakan teks asli
+
         score = sid.polarity_scores(english_text)
         if score['compound'] >= 0.05:
             return 1  # Positive
@@ -232,23 +257,66 @@ def train_and_evaluate_model(df):
     cm = confusion_matrix(y_test, predicted_labels)
     return model, metrics, cm
 
-
+            
 def dataset_page():
     st.title("Dataset")
-    uploaded_file = st.file_uploader("Upload your CSV file for preprocessing and analysis:", type=["csv"], key="csv_uploader")
+    uploaded_file = st.file_uploader("Upload your CSV file for preprocessing and result:", type=["csv"], key="csv_uploader")
 
     if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
+        # Deteksi encoding file
+        raw_data = uploaded_file.read()
+        detected_encoding = chardet.detect(raw_data)['encoding']
+        
+        # Jika encoding tidak ditemukan, fallback ke utf-8 atau latin-1
+        if detected_encoding is None:
+            detected_encoding = "utf-8"
+
+        st.write(f"**Detected Encoding:** {detected_encoding}")
+
+        # Reset posisi pembacaan file ke awal setelah membaca untuk deteksi encoding
+        uploaded_file.seek(0)
+
+        try:
+            # Coba membaca CSV dengan encoding yang terdeteksi
+            df = pd.read_csv(uploaded_file, encoding=detected_encoding, low_memory=False)
+        except UnicodeDecodeError:
+            # Jika tetap error, gunakan encoding "latin-1" sebagai fallback
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, encoding="latin-1", low_memory=False)
+        except pd.errors.EmptyDataError:
+            # Jika file kosong, tampilkan pesan error
+            st.error("The uploaded file is empty or contains only headers. Please upload a valid dataset.")
+            return
+
+        # Periksa apakah ada kolom di dalam CSV
+        if df.empty:
+            st.error("The uploaded CSV file is empty. Please upload a file with data.")
+            return
+
+        # Tampilkan preview dataset
         st.write("**Uploaded Dataset Preview:**")
         st.write(df.head())
 
+        # Validasi apakah kolom 'review' dan 'rating' ada dalam dataset
         if "review" not in df.columns or "rating" not in df.columns:
             st.error("The CSV must contain 'review' and 'rating' columns.")
-        else:
-            st.session_state["processed_data"] = df
-            st.success("Dataset loaded successfully! You can now proceed to the Preprocessing page.")
-            # if st.button("Go to Preprocessing"):
-            #     st.session_state['page'] = "Preprocessing"
+            return
+
+        # Membersihkan dataset: hapus duplikat dan baris kosong
+        df = df.drop_duplicates()
+        df = df.dropna(subset=["review", "rating"])
+
+        # Menampilkan hasil setelah pembersihan
+        st.write("**Cleaned Dataset Preview:**")
+        st.write(df.head())
+
+        # Simpan dataset ke dalam session state
+        st.session_state["processed_data"] = df
+        st.success("Dataset loaded and cleaned successfully! You can now proceed to the Preprocessing page.")
+
+        # if st.button("Go to Preprocessing"):
+        #     st.session_state['page'] = "Preprocessing"
+
 
 def predict_with_trained_model(model, tokenizer, text):
     """
@@ -278,8 +346,8 @@ def predict_with_trained_model(model, tokenizer, text):
         return "Negative"
 
 
-def analysis_page():
-    st.title("Analysis")
+def result_page():
+    st.title("Result")
 
     if "preprocessed_data" not in st.session_state:
         st.warning("No preprocessed data found. Please complete preprocessing first.")
@@ -401,11 +469,12 @@ def preprocessing_page():
         df = label_data_with_vader(df)
         st.write("**2. Labeling Data with VADER:**")
         st.write(df.head())
+        # st.write(df)
 
         st.session_state["preprocessed_data"] = df
-        st.success("Preprocessing complete! You can now proceed to the Analysis page.")
-        # if st.button("Go to Analysis"):
-        #     st.session_state['page'] = "Analysis"
+        st.success("Preprocessing complete! You can now proceed to the Result page.")
+        # if st.button("Go to Result"):
+        #     st.session_state['page'] = "Result"
 
 
 def dashboard():
@@ -414,11 +483,11 @@ def dashboard():
 
     with st.sidebar:
         selected = option_menu(
-            menu_title="Navigation",
-            options=["Home", "Dataset", "Preprocessing", "Analysis", "Search Product", "Logout"],
+            menu_title="Sentiment Analysis Of Tokopedia Product Reviews",
+            options=["Home", "Dataset", "Preprocessing", "Result", "Search Product & Proses", "Logout"],
             icons=["house", "table", "gear", "graph-up", "search", "box-arrow-right"],
             menu_icon="cast",
-            # default_index=["Home", "Dataset", "Preprocessing", "Analysis", "Search Product", "Logout"].index(current_page)
+            # default_index=["Home", "Dataset", "Preprocessing", "Result", "Search Product & Proses", "Logout"].index(current_page)
             default_index=0
         )
 
@@ -427,10 +496,10 @@ def dashboard():
 
     if selected == "Home":
         st.title("Home")
-        st.write("This application is used for sentiment analysis of Tokopedia product reviews.")
+        st.write("This application is used for sentiment result of Tokopedia product reviews.")
         st.write("**Main Features:**")
-        st.write("1. Preprocess raw data into analysis-ready data.")
-        st.write("2. Train and evaluate sentiment analysis models.")
+        st.write("1. Preprocess raw data into result-ready data.")
+        st.write("2. Train and evaluate sentiment result models.")
         st.write("3. Analyze Tokopedia product reviews using advanced tools.")
 
     elif selected == "Dataset":
@@ -439,16 +508,16 @@ def dashboard():
     elif selected == "Preprocessing":
         preprocessing_page()
 
-    elif selected == "Analysis":
-        analysis_page()
+    elif selected == "Result":
+        result_page()
 
-    elif selected == "Search Product":
-        st.title("Search Product")
+    elif selected == "Search Product & Proses":
+        st.title("Search Product & Proses")
         product_url = st.text_input("Enter Tokopedia product link:", key="product_url_input")
 
-        if st.button("Search Product", key="search_product_button"):
+        if st.button("Search Product & Proses", key="search_product_button"):
             if product_url:
-                response = api_product_analysis(product_url)
+                response = api_product_result(product_url)
                 if response.get("status"):
                     data = response["data"]
 
@@ -460,7 +529,7 @@ def dashboard():
                     st.write(f"**Reviews:** {data['ulasan']}")
                     st.write(f"**Shop:** {data['shop_name']}")
 
-                    st.header("Product Sentiment Analysis")
+                    st.header("Product Sentiment Result")
                     st.write(f"**Sentiment Summary:** {data['summary']}")
                     st.write(f"**Positive Reviews:** {data['count_positive']}")
                     st.write(f"**Negative Reviews:** {data['count_negative']}")
