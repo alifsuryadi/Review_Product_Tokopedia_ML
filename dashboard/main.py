@@ -7,9 +7,9 @@ from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFacto
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, accuracy_score, precision_score, recall_score, f1_score
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from deep_translator import GoogleTranslator
 import nltk
+import nltk.data
 import tensorflow as tf
 from transformers import BertTokenizer, TFBertForSequenceClassification
 import os
@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 import re
 import chardet
 from deep_translator.exceptions import RequestError
-
 import sys
 import os
 
@@ -25,6 +24,17 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from utils import get_model
+
+# Download NLTK data
+try:
+    nltk.data.find("sentiment/vader_lexicon.zip")
+    print("VADER Lexicon ditemukan secara lokal. Tidak perlu mengunduh lagi.")
+except LookupError:
+    print("VADER Lexicon tidak ditemukan. Mengunduh...")
+    nltk.download('vader_lexicon')
+
+# Sekarang import SentimentIntensityAnalyzer setelah lexicon tersedia
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 
 load_dotenv()
@@ -34,30 +44,66 @@ hugging_face_token = os.getenv("HUGGING_FACE_TOKEN")
 BASE_URL = "http://localhost:8080"
 BASE_ML_URL = "http://127.0.0.1:5000"
 
-# Download NLTK data
-nltk.download('vader_lexicon')
 
 def splash_screen():
+    
+    st.markdown(
+        """
+        <style>
+        .center-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 10vh; /* Membuat elemen berada di tengah vertikal */
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown('<div class="center-container">', unsafe_allow_html=True)
     st.title("Welcome to the Sentiment Result App")
     st.write("Analyze and preprocess Tokopedia product reviews effortlessly.")
 
-    col1, col2 = st.columns(2)
+    if st.button("Get Started"):
+        st.session_state['page'] = "login"
 
-    with col1:
-        if st.button("Login"):
+def login_page():
+    st.title("Login")
+    st.write("Check if your product is good or not")
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+    if st.button("Login", key="login_button"):
+        response = api_login(email, password)
+        if response.get("status"):
+            st.session_state['authenticated'] = True
+            st.session_state['token'] = response["data"]["token"]
+            st.session_state['page'] = "Home"
+        else:
+            st.error(response.get("message", "Login failed"))
+    
+    if st.button("Don't have an account? Register here"):
+        st.session_state['page'] = "register"
+        st.rerun()
+
+
+def register_page():
+    st.title("Register")
+    st.write("Start your product check with us")
+    email = st.text_input("Email")
+    name = st.text_input("Name")
+    password = st.text_input("Password", type="password")
+    if st.button("Register", key="register_button"):
+        response = api_register(email, name, password)
+        if response.get("status"):
+            st.success("Registration successful! Please login.")
             st.session_state['page'] = "login"
-
-    with col2:
-        if st.button("Register"):
-            st.session_state['page'] = "register"
-
-    if "page" in st.session_state:
-        if st.session_state["page"] == "login":
-            login_page()
-        elif st.session_state["page"] == "register":
-            register_page()
-
-            
+        else:
+            st.error(response.get("message", "Registration failed"))
+    
+    if st.button("Already have an account? Login here"):
+        st.session_state['page'] = "login"
+        st.rerun()
+                
 # Helper functions for API calls
 def api_register(email, name, password):
     url = f"{BASE_URL}/api/user"
@@ -91,9 +137,105 @@ def api_product_result(product_url):
     response = requests.get(url, params=params)
     return response.json()
 
+
+def dataset_page():
+    st.title("Dataset")
+    uploaded_file = st.file_uploader("Upload your CSV file for preprocessing and result:", type=["csv"], key="csv_uploader")
+
+    if uploaded_file is not None:
+        # Deteksi encoding file
+        raw_data = uploaded_file.read()
+        detected_encoding = chardet.detect(raw_data)['encoding']
+        
+        # Jika encoding tidak ditemukan, fallback ke utf-8 atau latin-1
+        if detected_encoding is None:
+            detected_encoding = "utf-8"
+
+        st.write(f"**Detected Encoding:** {detected_encoding}")
+
+        # Reset posisi pembacaan file ke awal setelah membaca untuk deteksi encoding
+        uploaded_file.seek(0)
+
+        try:
+            # Coba membaca CSV dengan encoding yang terdeteksi
+            df = pd.read_csv(uploaded_file, encoding=detected_encoding, low_memory=False)
+        except UnicodeDecodeError:
+            # Jika tetap error, gunakan encoding "latin-1" sebagai fallback
+            uploaded_file.seek(0)
+            df = pd.read_csv(uploaded_file, encoding="latin-1", low_memory=False)
+        except pd.errors.EmptyDataError:
+            # Jika file kosong, tampilkan pesan error
+            st.error("The uploaded file is empty or contains only headers. Please upload a valid dataset.")
+            return
+
+        # Periksa apakah ada kolom di dalam CSV
+        if df.empty:
+            st.error("The uploaded CSV file is empty. Please upload a file with data.")
+            return
+
+        # Tampilkan preview dataset
+        st.write("**Uploaded Dataset Preview:**")
+        st.write(df.head())
+
+        # Validasi apakah kolom 'review' dan 'rating' ada dalam dataset
+        if "review" not in df.columns or "rating" not in df.columns:
+            st.error("The CSV must contain 'review' and 'rating' columns.")
+            return
+
+        # Membersihkan dataset: hapus duplikat dan baris kosong
+        df = df.drop_duplicates()
+        df = df.dropna(subset=["review", "rating"])
+
+        # Menampilkan hasil setelah pembersihan
+        st.write("**Cleaned Dataset Preview:**")
+        st.write(df.head())
+
+        # Simpan dataset ke dalam session state
+        st.session_state["processed_data"] = df
+        st.success("Dataset loaded and cleaned successfully! You can now proceed to the Preprocessing page.")
+
+        # if st.button("Go to Preprocessing"):
+        #     st.session_state['page'] = "Preprocessing"
+
 def load_normalization_map(file_path):
     df = pd.read_csv(file_path, sep=";", header=None, names=["abbreviation", "normal"])
     return {row["abbreviation"]: row["normal"] for _, row in df.iterrows()}
+
+def preprocessing_page():
+    st.title("Preprocessing")
+    st.write("Perform data preprocessing and view the step-by-step process.")
+
+    # Validasi apakah data dari dataset telah dimuat
+    if "processed_data" not in st.session_state:
+        st.warning("No dataset found. Please upload data on the Dataset page first.")
+        return
+
+    df = st.session_state["processed_data"]
+    
+    st.write("**Dataset Preview:**")
+    st.write(df.head())
+
+    if st.button("Start Preprocessing", key="start_preprocessing"):
+        normalization_map = load_normalization_map("./kamus/kamus_singkatan.csv")
+
+        # Proses Preprocessing
+        st.write("**Original Dataset Preview (Top 5):**")
+        st.write(df.head())
+
+        df = preprocess_data(df, normalization_map)
+        st.write("**1. Preprocessing Steps:**")
+        st.write(df[["case_folded", "cleaned", "normalized", "filtered", "stemmed", "tokenized", "preprocessed_review"]].head())
+        st.write(df.head())
+
+        df = label_data_with_vader(df)
+        st.write("**2. Labeling Data with VADER:**")
+        st.write(df.head())
+        # st.write(df)
+
+        st.session_state["preprocessed_data"] = df
+        st.success("Preprocessing complete! You can now proceed to the Result page.")
+        # if st.button("Go to Result"):
+        #     st.session_state['page'] = "Result"
 
 
 def preprocess_data(df, normalization_map):
@@ -108,7 +250,6 @@ def preprocess_data(df, normalization_map):
         text = re.sub(r'#\w+', '', text)  # Hapus hashtag (#hashtag)
         text = re.sub(r'[^\w\s,]', '', text)  # Hapus karakter selain huruf, angka, spasi, dan koma
         text = re.sub(r'\s+', ' ', text).strip()  # Hapus spasi ganda dan spasi di awal/akhir
-        
         return text
 
     # Langkah preprocessing per teks
@@ -126,9 +267,13 @@ def preprocess_data(df, normalization_map):
         # Step 4: Filtering (Stopword Removal)
         filtered_text = stopword_remover.remove(normalized_text)
         steps["filtered"] = filtered_text
-        # Step 5: Lemmatization
-        lemmatized_text = stemmer.stem(filtered_text)
-        steps["lemmatized"] = lemmatized_text
+        # Step 5: Stemming
+        stemmed_text = " ".join([stemmer.stem(word) for word in filtered_text.split()])  # Stem setiap kata
+        steps["stemmed"] = stemmed_text
+        # Step 6: Tokenizing (Dilakukan setelah stemming)
+        tokenized_text = stemmed_text.split()  # Tokenisasi ke dalam bentuk list
+        steps["tokenized"] = tokenized_text
+
         return steps
 
     # Terapkan preprocessing dan simpan langkah-langkah
@@ -139,12 +284,16 @@ def preprocess_data(df, normalization_map):
     df["cleaned"] = preprocessing_steps.apply(lambda x: x["cleaned"])
     df["normalized"] = preprocessing_steps.apply(lambda x: x["normalized"])
     df["filtered"] = preprocessing_steps.apply(lambda x: x["filtered"])
-    df["lemmatized"] = preprocessing_steps.apply(lambda x: x["lemmatized"])
+    df["stemmed"] = preprocessing_steps.apply(lambda x: x["stemmed"])
+    df["tokenized"] = preprocessing_steps.apply(lambda x: x["tokenized"])
 
     # Tambahkan kolom final "preprocessed_review"
-    df["preprocessed_review"] = df["lemmatized"]
+    df["preprocessed_review"] = df["stemmed"]  # Preprocessed review tetap dalam format string
 
     return df
+
+
+
 
 def label_data_with_vader(df):
     sid = SentimentIntensityAnalyzer()
@@ -258,64 +407,6 @@ def train_and_evaluate_model(df):
     return model, metrics, cm
 
             
-def dataset_page():
-    st.title("Dataset")
-    uploaded_file = st.file_uploader("Upload your CSV file for preprocessing and result:", type=["csv"], key="csv_uploader")
-
-    if uploaded_file is not None:
-        # Deteksi encoding file
-        raw_data = uploaded_file.read()
-        detected_encoding = chardet.detect(raw_data)['encoding']
-        
-        # Jika encoding tidak ditemukan, fallback ke utf-8 atau latin-1
-        if detected_encoding is None:
-            detected_encoding = "utf-8"
-
-        st.write(f"**Detected Encoding:** {detected_encoding}")
-
-        # Reset posisi pembacaan file ke awal setelah membaca untuk deteksi encoding
-        uploaded_file.seek(0)
-
-        try:
-            # Coba membaca CSV dengan encoding yang terdeteksi
-            df = pd.read_csv(uploaded_file, encoding=detected_encoding, low_memory=False)
-        except UnicodeDecodeError:
-            # Jika tetap error, gunakan encoding "latin-1" sebagai fallback
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, encoding="latin-1", low_memory=False)
-        except pd.errors.EmptyDataError:
-            # Jika file kosong, tampilkan pesan error
-            st.error("The uploaded file is empty or contains only headers. Please upload a valid dataset.")
-            return
-
-        # Periksa apakah ada kolom di dalam CSV
-        if df.empty:
-            st.error("The uploaded CSV file is empty. Please upload a file with data.")
-            return
-
-        # Tampilkan preview dataset
-        st.write("**Uploaded Dataset Preview:**")
-        st.write(df.head())
-
-        # Validasi apakah kolom 'review' dan 'rating' ada dalam dataset
-        if "review" not in df.columns or "rating" not in df.columns:
-            st.error("The CSV must contain 'review' and 'rating' columns.")
-            return
-
-        # Membersihkan dataset: hapus duplikat dan baris kosong
-        df = df.drop_duplicates()
-        df = df.dropna(subset=["review", "rating"])
-
-        # Menampilkan hasil setelah pembersihan
-        st.write("**Cleaned Dataset Preview:**")
-        st.write(df.head())
-
-        # Simpan dataset ke dalam session state
-        st.session_state["processed_data"] = df
-        st.success("Dataset loaded and cleaned successfully! You can now proceed to the Preprocessing page.")
-
-        # if st.button("Go to Preprocessing"):
-        #     st.session_state['page'] = "Preprocessing"
 
 
 def predict_with_trained_model(model, tokenizer, text):
@@ -402,81 +493,19 @@ def result_page():
                 padding='max_length',
                 return_tensors='tf'
             )
-
+            
             prediction = model.predict([tokenized_input['input_ids'], tokenized_input['attention_mask']])
-            sentiment = "Positive" if tf.argmax(prediction.logits, axis=1).numpy()[0] == 1 else "Negative"
+            probabilities = tf.nn.softmax(prediction.logits, axis=1).numpy()[0]
+            predicted_label = tf.argmax(prediction.logits, axis=1).numpy()[0]
+            sentiment = "Positive" if predicted_label == 1 else "Negative"
+            st.write(f"**Probability:** Positive: {probabilities[1]:.2f}, Negative: {probabilities[0]:.2f}")
             st.write(f"**Predicted Sentiment:** {sentiment}")
 
+            # prediction = model.predict([tokenized_input['input_ids'], tokenized_input['attention_mask']])
+            # sentiment = "Positive" if tf.argmax(prediction.logits, axis=1).numpy()[0] == 1 else "Negative"
+            # st.write(f"**Predicted Sentiment:** {sentiment}")
 
         
-def login_page():
-    st.title("Login")
-    email = st.text_input("Email")
-    password = st.text_input("Password", type="password")
-    if st.button("Login", key="login_button"):
-        response = api_login(email, password)
-        if response.get("status"):
-            st.session_state['authenticated'] = True
-            st.session_state['token'] = response["data"]["token"]
-            st.session_state['page'] = "Home"
-        else:
-            st.error(response.get("message", "Login failed"))
-
-def register_page():
-    st.title("Register")
-    email = st.text_input("Email")
-    name = st.text_input("Name")
-    password = st.text_input("Password", type="password")
-    if st.button("Register", key="register_button"):
-        response = api_register(email, name, password)
-        if response.get("status"):
-            st.success("Registration successful! Please login.")
-            st.session_state['page'] = "login"
-        else:
-            st.error(response.get("message", "Registration failed"))
-            
-
-def load_normalization_map(file_path):
-    df = pd.read_csv(file_path, sep=";", header=None, names=["abbreviation", "normal"])
-    return {row["abbreviation"]: row["normal"] for _, row in df.iterrows()}
-
-def preprocessing_page():
-    st.title("Preprocessing")
-    st.write("Perform data preprocessing and view the step-by-step process.")
-
-    # Validasi apakah data dari dataset telah dimuat
-    if "processed_data" not in st.session_state:
-        st.warning("No dataset found. Please upload data on the Dataset page first.")
-        return
-
-    df = st.session_state["processed_data"]
-    
-    st.write("**Dataset Preview:**")
-    st.write(df.head())
-
-    if st.button("Start Preprocessing", key="start_preprocessing"):
-        normalization_map = load_normalization_map("./kamus/kamus_singkatan.csv")
-
-        # Proses Preprocessing
-        st.write("**Original Dataset Preview (Top 5):**")
-        st.write(df.head())
-
-        df = preprocess_data(df, normalization_map)
-        st.write("**1. Preprocessing Steps:**")
-        st.write(df[["case_folded", "cleaned", "normalized", "filtered", "lemmatized", "preprocessed_review"]].head())
-        st.write(df.head())
-
-        df = label_data_with_vader(df)
-        st.write("**2. Labeling Data with VADER:**")
-        st.write(df.head())
-        # st.write(df)
-
-        st.session_state["preprocessed_data"] = df
-        st.success("Preprocessing complete! You can now proceed to the Result page.")
-        # if st.button("Go to Result"):
-        #     st.session_state['page'] = "Result"
-
-
 def dashboard():
     # Navigasi antar halaman menggunakan session_state
     current_page = st.session_state.get("page", "Home")
