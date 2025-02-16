@@ -53,8 +53,15 @@ Before running this project, ensure you have the following installed:
    ```
 
 6. Run the Flask application:
+
    ```bash
    flask run
+   ```
+
+7. Run the Streamlit application:
+
+   ```bash
+   streamlit run dashboard/main.py
    ```
 
 - If you done, to exit from virtual environment:
