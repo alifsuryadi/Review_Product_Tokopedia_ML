@@ -559,7 +559,6 @@ def dashboard():
                     st.write(f"**Shop:** {data['shop_name']}")
 
                     st.header("Product Sentiment Result")
-                    st.write(f"**Sentiment Summary:** {data['summary']}")
                     st.write(f"**Positive Reviews:** {data['count_positive']}")
                     st.write(f"**Negative Reviews:** {data['count_negative']}")
 
@@ -569,6 +568,8 @@ def dashboard():
                     ax.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=90)
                     ax.axis("equal")
                     st.pyplot(fig)
+                    
+                    st.write(f"**Sentiment Summary:** {data['summary']}")
                 else:
                     st.error("Failed to fetch product data. Please check the link.")
 
