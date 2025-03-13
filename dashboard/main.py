@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 import matplotlib.pyplot as plt
 from streamlit_option_menu import option_menu
-from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFactory
+# from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFactory
 from Sastrawi.Stemmer.StemmerFactory import StemmerFactory
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, accuracy_score, precision_score, recall_score, f1_score
@@ -19,6 +19,29 @@ import chardet
 from deep_translator.exceptions import RequestError
 import sys
 import os
+
+from Sastrawi.StopWordRemover.StopWordRemoverFactory import StopWordRemoverFactory
+
+# Buat custom stopword remover dengan menghapus "tidak"
+factory = StopWordRemoverFactory()
+stopwords = factory.get_stop_words()  # Ambil daftar stopword bawaan
+
+# Hapus "tidak" dari daftar stopwords
+custom_stopwords = list(filter(lambda word: word != "tidak", stopwords))
+
+# Buat StopWordRemover baru dengan daftar yang telah dimodifikasi
+class CustomStopWordRemover:
+    def __init__(self, stopwords):
+        self.stopwords = set(stopwords)
+
+    def remove(self, text):
+        words = text.split()
+        filtered_text = " ".join([word for word in words if word not in self.stopwords])
+        return filtered_text
+
+# Buat instance StopWordRemover dengan custom stopwords
+custom_stopword_remover = CustomStopWordRemover(custom_stopwords)
+
 
 # Tambahkan path direktori tempat 'utils' berada
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -240,7 +263,7 @@ def preprocessing_page():
 
 def preprocess_data(df, normalization_map):
     # Initialize Sastrawi stopword remover and stemmer
-    stopword_remover = StopWordRemoverFactory().create_stop_word_remover()
+    # stopword_remover = StopWordRemoverFactory().create_stop_word_remover()
     stemmer = StemmerFactory().create_stemmer()
     
     def clean_text(text):
@@ -265,7 +288,8 @@ def preprocess_data(df, normalization_map):
         normalized_text = " ".join([normalization_map.get(word, word) for word in cleaned_text.split()])
         steps["normalized"] = normalized_text
         # Step 4: Filtering (Stopword Removal)
-        filtered_text = stopword_remover.remove(normalized_text)
+        # filtered_text = stopword_remover.remove(normalized_text)
+        filtered_text = custom_stopword_remover.remove(normalized_text)
         steps["filtered"] = filtered_text
         # Step 5: Stemming
         stemmed_text = " ".join([stemmer.stem(word) for word in filtered_text.split()])  # Stem setiap kata
@@ -460,7 +484,7 @@ def result_page():
         # Display Confusion Matrix
         st.write("### Confusion Matrix")
         fig, ax = plt.subplots()
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Negative", "Positive"])
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Tidak Bagus", "Bagus"])
         disp.plot(ax=ax)
         st.pyplot(fig)
 
@@ -498,7 +522,7 @@ def result_page():
             probabilities = tf.nn.softmax(prediction.logits, axis=1).numpy()[0]
             predicted_label = tf.argmax(prediction.logits, axis=1).numpy()[0]
             sentiment = "Positive" if predicted_label == 1 else "Negative"
-            st.write(f"**Probability:** Positive: {probabilities[1]:.2f}, Negative: {probabilities[0]:.2f}")
+            st.write(f"**Probability:** Bagus: {probabilities[1]:.2f}, Tidak Bagus: {probabilities[0]:.2f}")
             st.write(f"**Predicted Sentiment:** {sentiment}")
 
             # prediction = model.predict([tokenized_input['input_ids'], tokenized_input['attention_mask']])
@@ -559,10 +583,10 @@ def dashboard():
                     st.write(f"**Shop:** {data['shop_name']}")
 
                     st.header("Product Sentiment Result")
-                    st.write(f"**Positive Reviews:** {data['count_positive']}")
-                    st.write(f"**Negative Reviews:** {data['count_negative']}")
+                    st.write(f"**Ulasan Bagus:** {data['count_positive']}")
+                    st.write(f"**Ulasan Tidak Bagus:** {data['count_negative']}")
 
-                    labels = ["Positive", "Negative"]
+                    labels = ["Bagus", "Tidak Bagus"]
                     sizes = [data["count_positive"], data["count_negative"]]
                     fig, ax = plt.subplots()
                     ax.pie(sizes, labels=labels, autopct="%1.1f%%", startangle=90)

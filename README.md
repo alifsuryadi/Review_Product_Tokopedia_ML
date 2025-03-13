@@ -1,8 +1,8 @@
 [![Build and Push to Artifact Registry](https://github.com/alifsuryadi/Review_Product_Tokopedia_ML/actions/workflows/deploy.yml/badge.svg)](https://github.com/alifsuryadi/Review_Product_Tokopedia_ML/actions/workflows/deploy.yml)
 
-# Flask Capstone Machine Learning Project
+# Flask Thesis Machine Learning Project
 
-This is a Flask project for run ML model.
+This is a Flask project for running an advanced ML model designed to analyze and summarize product reviews efficiently.
 
 ## Prerequisites
 
@@ -75,8 +75,8 @@ Only one endpoint provided in this service: `/predict`. This endpoint receives a
 
 ## Model
 
-The model we use is BERT, pre-trained with Indonesian Wikipedia, as provided in HuggingFace ([cahya/bert-base-indonesian-522M](https://huggingface.co/cahya/bert-base-indonesian-522M)). The model is trained with TensorFlow using Adam optimizer with a learning rate of 5e-5 and sparse categorical cross entropy objective in 5 epochs. We fine-tuned the model using [fancyzhx/amazon_polarity](https://huggingface.co/datasets/fancyzhx/amazon_polarity) dataset, which has been translated into Indonesian. We sampled 2000 data for the fine-tuning process. This model achieves an average validation accuracy of 0.8396.
+The model we use is `BERT`, pre-trained with Indonesian Wikipedia, as provided in HuggingFace ([cahya/bert-base-indonesian-522M](https://huggingface.co/cahya/bert-base-indonesian-522M)). The model is trained with TensorFlow using Adam optimizer with a learning rate of 5e-5 and sparse categorical cross entropy objective in 5 epochs. We fine-tuned the model using [fancyzhx/amazon_polarity](https://huggingface.co/datasets/fancyzhx/amazon_polarity) dataset, which has been translated into Indonesian. We sampled 1450 data for the fine-tuning process. This model achieves an average validation accuracy of 0.86.
 
 ## Deployment
 
-The model is deployed with Google Cloud Run, with the model's weights file stored in Google Cloud Storage.
+The model is deployed with `Google Cloud Run`, with the model's weights file stored in `Google Cloud Storage`.
