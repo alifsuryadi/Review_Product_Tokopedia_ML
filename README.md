@@ -6,7 +6,13 @@ This is a Flask project for running an advanced ML model designed to analyze and
 
 ## Overview
 
+### Search Product View
+
 ![SEARCH-PRODUCT](public/Search_Product.png)
+
+### Result View
+
+![RESULT](public/Result.png)
 
 ## Prerequisites
 
