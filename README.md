@@ -4,6 +4,10 @@
 
 This is a Flask project for running an advanced ML model designed to analyze and summarize product reviews efficiently.
 
+## Overview
+
+![SEARCH-PRODUCT](public/Search_Product.png)
+
 ## Prerequisites
 
 Before running this project, ensure you have the following installed:
